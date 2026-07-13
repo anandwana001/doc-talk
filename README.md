@@ -29,6 +29,50 @@ DocTalk.init({ apiBase })    →    /embed               (voice UI iframe)
 
 ---
 
+## How Agora powers this
+
+DocTalk would not be possible without [Agora Conversational AI Engine](https://docs.agora.io/en/ai). Here is exactly what Agora provides:
+
+### 1. Managed voice pipeline — zero infra to run
+
+When a user starts talking, three things happen in sequence — all managed by Agora:
+
+```
+User speaks  →  Deepgram nova-3 (ASR)  →  GPT-4o-mini (LLM)  →  MiniMax TTS  →  User hears the answer
+```
+
+DocTalk's server calls one REST API to create an Agora agent. Agora spins up a fully managed process that handles speech-to-text, calls the LLM with your system prompt and docs, gets the answer, and converts it back to voice — all without you running any audio processing infrastructure.
+
+### 2. Sub-500ms latency via SD-RTN
+
+Agora's Software Defined Real-time Network (SD-RTN) is a global private network built specifically for real-time media. The voice roundtrip — user speech → transcription → LLM → TTS → audio back — completes in under 500ms in most regions. This makes the conversation feel natural, not like talking to a slow chatbot.
+
+### 3. Real-time transcripts via RTM
+
+The Agora RTM (Real-time Messaging) SDK sends word-by-word transcript updates to the browser as the agent speaks. DocTalk uses this to:
+- Show the conversation in real time (words appear as the agent speaks)
+- Detect when a turn is complete, then fetch relevant doc page links to show below the bubble
+
+### 4. Token-based security
+
+Agora uses short-lived tokens for channel authentication. DocTalk generates these server-side from your App Certificate (which never leaves your server) and passes them to the browser client. Tokens expire, rotate automatically, and are scoped per channel.
+
+### 5. What DocTalk adds on top
+
+Agora handles the voice layer. DocTalk adds the documentation intelligence layer:
+
+| Layer | Technology | What it does |
+|---|---|---|
+| Voice pipeline | **Agora Conversational AI** | ASR → LLM → TTS, managed globally |
+| Real-time transport | **Agora SD-RTN** | Sub-500ms global voice delivery |
+| Transcripts | **Agora RTM** | Live word-by-word text from agent |
+| Doc indexing | **MiniSearch (BM25)** | Indexes all `.md`/`.mdx` files locally |
+| Doc retrieval | **Two-layer RAG** | 280K priority docs + 40K context search |
+| Widget | **Vanilla JS** | Zero-dependency embed for any website |
+| Links in transcript | **`/api/search-links`** | Top 3 relevant pages shown after each answer |
+
+---
+
 ## Quick start (local)
 
 ### 1. Prerequisites
@@ -272,6 +316,19 @@ These are the known limitations and the next steps to make DocTalk production-gr
 
 ---
 
+## Production checklist
+
+Before shipping to real users, complete these:
+
+- [ ] Set `DOCS_LLM_URL` pointing to an `llms.txt` file (local `DOCS_PATH` does not work on Vercel/cloud)
+- [ ] Add an `Authorization: Bearer <token>` check to `/api/invite-agent` so only your widget can trigger agents
+- [ ] Add rate limiting per IP on `/api/invite-agent` to protect your Agora credits
+- [ ] Set `DOCS_BASE_URL` to your real docs URL so transcript links work correctly
+- [ ] Enable Agora Presence service in the Agora Console (suppresses a non-fatal RTM warning)
+- [ ] Test in the iframe context at real widget dimensions (~380×560px), not just at `/embed` directly
+
+---
+
 ## License
 
-MIT
+[MIT](LICENSE) — free to use, modify, and self-host commercially.

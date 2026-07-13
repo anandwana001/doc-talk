@@ -236,13 +236,22 @@ export default function DocConversation({
 
   const isConnecting = connectionState === 'CONNECTING' || connectionState === 'RECONNECTING';
 
+  const agentStateLabel = useMemo(() => {
+    if (isConnecting) return 'Connecting…';
+    if (!isAgentConnected) return 'Waiting for assistant…';
+    if (agentState === AgentState.LISTENING) return 'Listening…';
+    if (agentState === AgentState.THINKING) return 'Thinking…';
+    if (agentState === AgentState.SPEAKING) return 'Speaking…';
+    return 'Ready';
+  }, [isConnecting, isAgentConnected, agentState]);
+
   return (
     <div className="flex flex-col h-full">
 
-      {/* Status + Visualizer */}
-      <div className="flex flex-col items-center justify-center pt-4 pb-2 gap-1">
-        {/* Inline connection status — no separate header, no extra X */}
-        <div className="flex items-center gap-1.5 mb-1">
+      {/* Compact top: status dot + orb + state label */}
+      <div className="flex flex-col items-center pt-3 pb-1 gap-0.5 shrink-0">
+        {/* Status row */}
+        <div className="flex items-center gap-1.5">
           <div
             className={cn(
               'w-1.5 h-1.5 rounded-full',
@@ -253,22 +262,18 @@ export default function DocConversation({
                 : 'bg-red-400',
             )}
           />
-          <span className="text-xs text-muted-foreground">
-            {isConnecting
-              ? 'Connecting…'
-              : isAgentConnected
-              ? 'Ready'
-              : 'Waiting for assistant…'}
-          </span>
+          <span className="text-xs text-muted-foreground">{agentStateLabel}</span>
         </div>
 
+        {/* Orb — constrained to 96px, internal state label hidden */}
         {isConnecting && !isAgentConnected ? (
-          <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
-            <Loader2 className="w-8 h-8 animate-spin" />
-            <span className="text-sm">Starting assistant…</span>
+          <div className="flex items-center gap-1.5 py-2 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin" />
           </div>
         ) : (
-          <AgentVisualizer state={visualizerState} size="md" />
+          <div className="[&_p]:hidden w-28 h-28 overflow-hidden flex items-center justify-center">
+            <AgentVisualizer state={visualizerState} size="sm" />
+          </div>
         )}
 
         {/* Hidden remote audio players */}
@@ -280,9 +285,9 @@ export default function DocConversation({
       </div>
 
       {/* Transcript */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+      <div className="flex-1 overflow-y-auto px-3 pt-2 pb-3 space-y-3 min-h-0">
         {transcript.length === 0 && !inProgress && (
-          <p className="text-center text-xs text-muted-foreground py-2">
+          <p className="text-center text-xs text-muted-foreground pt-1">
             Speak to ask about the documentation.
           </p>
         )}
@@ -344,22 +349,30 @@ function TranscriptBubble({
       </div>
 
       {links && links.length > 0 && (
-        <div className="mt-1.5 max-w-[85%] flex flex-col gap-1">
-          {links.map((link) => (
-            <a
-              key={link.url}
-              href={link.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs text-primary hover:underline truncate"
-            >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="shrink-0 opacity-70">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-              </svg>
-              <span className="truncate">{link.title}</span>
-            </a>
-          ))}
+        <div className="mt-2 max-w-[90%]">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-medium">Related pages</p>
+          <div className="flex flex-wrap gap-1.5">
+            {links.map((link) => (
+              <a
+                key={link.url}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-background hover:bg-muted text-xs text-foreground hover:text-primary transition-colors max-w-[200px] group"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="shrink-0 text-muted-foreground group-hover:text-primary transition-colors">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+                <span className="truncate">{link.title}</span>
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="shrink-0 opacity-40 group-hover:opacity-100 transition-opacity">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                  <polyline points="15 3 21 3 21 9"/>
+                  <line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+              </a>
+            ))}
+          </div>
         </div>
       )}
     </div>

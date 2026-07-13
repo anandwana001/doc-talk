@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Environment — never commit real credentials
+.env.local
+.env*.local
+
+# TypeScript build cache
+tsconfig.tsbuildinfo
+
+# IDE / OS
+.DS_Store
+.claude/
+*.swp
+*.swo
+
+# Vercel
+.vercel
+
+# Debug logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*

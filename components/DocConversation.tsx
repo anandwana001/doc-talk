@@ -180,9 +180,12 @@ export default function DocConversation({
   }, [transcript, inProgress]);
 
   // After each completed agent message, fetch relevant doc links to show in transcript.
+  // Skip the first agent message — it's always a greeting, not a topical answer.
   useEffect(() => {
+    const agentMessages = transcript.filter((m) => m.isAgent);
     for (const msg of transcript) {
       if (!msg.isAgent || msg.text.trim().length < 20) continue;
+      if (agentMessages[0]?.text === msg.text) continue; // skip greeting
       const key = msg.text.slice(0, 120);
       if (fetchedFor.current.has(key)) continue;
       fetchedFor.current.add(key);

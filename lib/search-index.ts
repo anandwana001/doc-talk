@@ -195,7 +195,9 @@ export async function searchDocsForLinks(query: string, topK = 3): Promise<DocLi
     const chunk = chunks.get(r.id);
     if (!chunk) continue;
     if (seen.has(chunk.filePath)) continue;
+    if (seen.has(chunk.title)) continue; // skip same-title files from different paths
     seen.add(chunk.filePath);
+    seen.add(chunk.title);
     links.push({ title: chunk.title, filePath: chunk.filePath });
   }
 

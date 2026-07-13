@@ -1,6 +1,8 @@
-# DocTalk
+# DocTalk SDK
 
-A self-hosted voice AI assistant for documentation sites — powered by [Agora Conversational AI](https://docs.agora.io/en/ai). Add a floating "Talk to Docs" button to any website. Users speak naturally; the AI answers from your documentation.
+An open-source, self-hosted SDK that adds a **voice AI assistant** to any documentation site — powered by [Agora Conversational AI](https://docs.agora.io/en/ai).
+
+Users click a button, speak naturally, and get spoken answers directly from your documentation. No typing, no searching.
 
 ```
 User speaks → Agora ASR → GPT-4o-mini (with your docs) → TTS → User hears the answer
@@ -8,72 +10,15 @@ User speaks → Agora ASR → GPT-4o-mini (with your docs) → TTS → User hear
 
 ---
 
-## How it works
+## What you get
 
-DocTalk is a **Next.js server** you deploy once. It:
-
-1. Indexes your documentation with MiniSearch (no external DB needed)
-2. Exposes an `/embed` page — a full-screen voice conversation UI
-3. Serves `doctalk.js` — a tiny vanilla JS file (zero dependencies) that any website loads with a `<script>` tag
-
-When a user clicks the button on your site, an iframe loads `/embed`. The iframe handles the full Agora voice pipeline (microphone, speech recognition, AI, text-to-speech). The host site never touches any Agora SDK.
-
-```
-Your website                      DocTalk server (you deploy this)
-────────────                      ────────────────────────────────
-<script src="/doctalk.js">   →    /doctalk.js          (widget JS)
-DocTalk.init({ apiBase })    →    /embed               (voice UI iframe)
-                             →    /api/invite-agent    (starts Agora agent)
-                             →    /api/search-links    (doc links in transcript)
-```
+- **Server SDK** — a Next.js app you deploy once (Vercel, Railway, anywhere)
+- **Client SDK** — `doctalk.js`, a zero-dependency script you drop into any website with 2 lines
+- **Your infrastructure** — your Agora account, your docs, your data, your costs
 
 ---
 
-## How Agora powers this
-
-DocTalk would not be possible without [Agora Conversational AI Engine](https://docs.agora.io/en/ai). Here is exactly what Agora provides:
-
-### 1. Managed voice pipeline — zero infra to run
-
-When a user starts talking, three things happen in sequence — all managed by Agora:
-
-```
-User speaks  →  Deepgram nova-3 (ASR)  →  GPT-4o-mini (LLM)  →  MiniMax TTS  →  User hears the answer
-```
-
-DocTalk's server calls one REST API to create an Agora agent. Agora spins up a fully managed process that handles speech-to-text, calls the LLM with your system prompt and docs, gets the answer, and converts it back to voice — all without you running any audio processing infrastructure.
-
-### 2. Sub-500ms latency via SD-RTN
-
-Agora's Software Defined Real-time Network (SD-RTN) is a global private network built specifically for real-time media. The voice roundtrip — user speech → transcription → LLM → TTS → audio back — completes in under 500ms in most regions. This makes the conversation feel natural, not like talking to a slow chatbot.
-
-### 3. Real-time transcripts via RTM
-
-The Agora RTM (Real-time Messaging) SDK sends word-by-word transcript updates to the browser as the agent speaks. DocTalk uses this to:
-- Show the conversation in real time (words appear as the agent speaks)
-- Detect when a turn is complete, then fetch relevant doc page links to show below the bubble
-
-### 4. Token-based security
-
-Agora uses short-lived tokens for channel authentication. DocTalk generates these server-side from your App Certificate (which never leaves your server) and passes them to the browser client. Tokens expire, rotate automatically, and are scoped per channel.
-
-### 5. What DocTalk adds on top
-
-Agora handles the voice layer. DocTalk adds the documentation intelligence layer:
-
-| Layer | Technology | What it does |
-|---|---|---|
-| Voice pipeline | **Agora Conversational AI** | ASR → LLM → TTS, managed globally |
-| Real-time transport | **Agora SD-RTN** | Sub-500ms global voice delivery |
-| Transcripts | **Agora RTM** | Live word-by-word text from agent |
-| Doc indexing | **MiniSearch (BM25)** | Indexes all `.md`/`.mdx` files locally |
-| Doc retrieval | **Two-layer RAG** | 280K priority docs + 40K context search |
-| Widget | **Vanilla JS** | Zero-dependency embed for any website |
-| Links in transcript | **`/api/search-links`** | Top 3 relevant pages shown after each answer |
-
----
-
-## Quick start (local)
+## Quick start
 
 ### 1. Prerequisites
 
@@ -83,163 +28,50 @@ Agora handles the voice layer. DocTalk adds the documentation intelligence layer
 ### 2. Clone and install
 
 ```bash
-git clone https://github.com/your-org/doc-talk.git
+git clone https://github.com/anandwana001/doc-talk.git
 cd doc-talk
 pnpm install
 ```
 
-### 3. Configure environment
+### 3. Configure
 
 ```bash
 cp .env.local.example .env.local
 ```
 
-Open `.env.local` and fill in:
-
-```env
-# Required — Agora Console → your project
-NEXT_PUBLIC_AGORA_APP_ID=your_app_id
-NEXT_AGORA_APP_CERTIFICATE=your_app_certificate
-
-# Your docs (choose one — see "Docs source" section below)
-DOCS_PATH=/path/to/your/docs/folder
-
-# Optional branding
-COMPANY_NAME=Acme Corp
-AGENT_NAME=Alex
-AGENT_GREETING=Hi! I'm Alex, here to help with the docs.
-```
+Fill in your Agora credentials and point to your docs. See [Configuration](docs/configuration.md).
 
 ### 4. Run
 
 ```bash
 pnpm dev
-# DocTalk is now running at http://localhost:3000
+# http://localhost:3000
 ```
 
-Open `http://localhost:3000` to see the landing page. Open `http://localhost:3000/embed` to test the voice UI directly in your browser.
+Open `http://localhost:3000/embed` to test the voice UI in your browser.
 
----
-
-## Add the button to your website
-
-Once DocTalk is running (locally or deployed), add **two lines** to any HTML page:
+### 5. Add to your website
 
 ```html
-<!-- At the bottom of your <body> -->
 <script src="https://YOUR-DOCTALK-URL/doctalk.js"></script>
 <script>
-  DocTalk.init({
-    apiBase: 'https://YOUR-DOCTALK-URL'
-  });
+  DocTalk.init({ apiBase: 'https://YOUR-DOCTALK-URL' });
 </script>
 ```
 
-Replace `https://YOUR-DOCTALK-URL` with your deployed DocTalk server URL (e.g. `https://doc-talk.vercel.app`).
-
-That's it. A floating microphone button appears in the bottom-right corner. Users click it to start talking.
-
-### Options
-
-```js
-DocTalk.init({
-  apiBase:  'https://your-doctalk.vercel.app', // required
-  label:    'Talk to Docs',                    // button label (default: "Talk to Docs")
-  position: 'bottom-right',                   // or "bottom-left"
-  color:    '#2563eb',                         // button background color
-});
-```
+See [Integration guide](docs/integration.md) for all options.
 
 ---
 
-## Docs source
+## Documentation
 
-DocTalk needs your documentation content to answer questions. Choose **one** of these three options in `.env.local`:
-
-### Option A — Local folder (development)
-
-```env
-DOCS_PATH=/path/to/your/docs/folder
-```
-
-DocTalk recursively reads all `.md` and `.mdx` files in this folder. It builds a MiniSearch index at startup and loads the most relevant ~280K characters into each agent's context.
-
-**Not suitable for cloud deployment** — the path doesn't exist on a remote server.
-
-### Option B — Remote `llms.txt` URL (recommended for production)
-
-```env
-DOCS_LLM_URL=https://docs.yourcompany.com/llms.txt
-```
-
-Many documentation sites expose an `llms.txt` or `llms-full.txt` file — a plain text representation of the entire docs, designed for LLM consumption. Point DocTalk here and it works in any cloud environment.
-
-Check if your docs site has one: `https://yourdocs.com/llms.txt` or `https://yourdocs.com/llms-full.txt`.
-
-### Option C — Inline content
-
-```env
-DOCS_CONTENT="# My Product\n\nMy product does X, Y, and Z..."
-```
-
-Paste your documentation content directly as an environment variable. Good for small docs or quick tests.
-
----
-
-## Deploy to production (Vercel)
-
-### 1. Push to GitHub
-
-```bash
-git add .
-git commit -m "initial commit"
-git remote add origin https://github.com/your-org/doc-talk.git
-git push -u origin main
-```
-
-### 2. Deploy on Vercel
-
-1. Go to [vercel.com](https://vercel.com) → New Project → Import your repo
-2. Set these environment variables in the Vercel dashboard:
-
-| Variable | Value |
+| Guide | What's inside |
 |---|---|
-| `NEXT_PUBLIC_AGORA_APP_ID` | Your Agora App ID |
-| `NEXT_AGORA_APP_CERTIFICATE` | Your Agora App Certificate |
-| `DOCS_LLM_URL` | `https://docs.yourcompany.com/llms.txt` |
-| `COMPANY_NAME` | Your company name |
-| `AGENT_NAME` | Your assistant's name |
-| `AGENT_GREETING` | Opening message |
-| `DOCS_BASE_URL` | Your docs site URL (for transcript links) |
-
-3. Deploy. Your DocTalk URL will be `https://your-project.vercel.app`.
-
-### 3. Update your website
-
-```html
-<script src="https://your-project.vercel.app/doctalk.js"></script>
-<script>
-  DocTalk.init({ apiBase: 'https://your-project.vercel.app' });
-</script>
-```
-
----
-
-## All environment variables
-
-| Variable | Required | Description |
-|---|---|---|
-| `NEXT_PUBLIC_AGORA_APP_ID` | ✅ | Agora project App ID |
-| `NEXT_AGORA_APP_CERTIFICATE` | ✅ | Agora project App Certificate |
-| `NEXT_PUBLIC_AGENT_UID` | — | RTC UID for the AI agent (default: `123456`) |
-| `COMPANY_NAME` | — | Used in the system prompt (default: `"this product"`) |
-| `AGENT_NAME` | — | Assistant's name (default: `"Assistant"`) |
-| `AGENT_GREETING` | — | First thing the agent says |
-| `DOCS_PATH` | one of these | Local folder of `.md`/`.mdx` files |
-| `DOCS_LLM_URL` | one of these | Remote `llms.txt` URL |
-| `DOCS_CONTENT` | one of these | Inline docs string |
-| `DOCS_BASE_URL` | — | Your docs site base URL — enables clickable links in the transcript |
-| `DOCS_URL_LOCALE` | — | Locale prefix for doc URLs (default: `en`) |
+| [How it works](docs/how-it-works.md) | Architecture, Agora voice pipeline, MiniSearch RAG, transcript links |
+| [Configuration](docs/configuration.md) | All environment variables, docs source options |
+| [Integration](docs/integration.md) | Adding to your website, widget options, iframe details |
+| [Deployment](docs/deployment.md) | Vercel deploy, production checklist, API auth |
+| [Roadmap](docs/roadmap.md) | Known limitations and planned improvements |
 
 ---
 
@@ -247,85 +79,13 @@ git push -u origin main
 
 | Layer | Technology |
 |---|---|
-| Framework | Next.js 15 (App Router) |
 | Voice pipeline | Agora Conversational AI Engine |
-| Speech-to-text | Deepgram nova-3 |
-| LLM | GPT-4o-mini (via Agora managed) |
-| Text-to-speech | MiniMax speech_2_6_turbo |
+| Real-time transport | Agora SD-RTN |
+| Transcripts | Agora RTM |
+| Framework | Next.js 15 (App Router) |
 | Search / RAG | MiniSearch (BM25, in-memory) |
-| Widget | Vanilla JS — zero dependencies |
+| Client widget | Vanilla JS — zero dependencies |
 | Styling | Tailwind CSS |
-
----
-
-## Project structure
-
-```
-doc-talk/
-├── app/
-│   ├── api/
-│   │   ├── generate-agora-token/   # RTC + RTM token generation
-│   │   ├── invite-agent/           # Starts the Agora voice agent
-│   │   ├── stop-conversation/      # Stops the agent
-│   │   └── search-links/          # Returns related doc links for transcript
-│   ├── embed/                      # Full-screen voice UI (loaded in iframe)
-│   └── page.tsx                    # Landing / demo page
-├── components/
-│   ├── DocTalkEmbed.tsx            # Embed page orchestration
-│   ├── DocTalkWidget.tsx           # Floating button widget (direct embed)
-│   └── DocConversation.tsx         # Core RTC + RTM conversation UI
-├── lib/
-│   ├── search-index.ts             # MiniSearch index builder + search functions
-│   ├── docs-loader.ts              # Docs content loading (path / URL / inline)
-│   └── system-prompt.ts            # Agent system prompt builder
-├── public/
-│   └── doctalk.js                  # The SDK — drop this into any website
-└── types/
-    └── conversation.ts             # Shared TypeScript types
-```
-
----
-
-## TODOs — Performance & Scale
-
-These are the known limitations and the next steps to make DocTalk production-grade:
-
-### RAG (most impactful)
-- [ ] **Per-question retrieval** — currently docs are loaded at session start based on page context. The right solution is a custom LLM proxy (`/api/llm/chat/completions`) that intercepts each LLM call, searches MiniSearch with the user's actual question, and injects relevant chunks before forwarding to OpenAI. This makes DocTalk truly handle any docs size with no quality degradation.
-- [ ] **Persistent index** — MiniSearch index rebuilds from disk on every cold start. Write the serialized index to a file on first build; reload from file on subsequent starts.
-
-### Security
-- [ ] **API auth** — `/api/invite-agent` is open. Anyone can call it and start an agent on your Agora account. Add a shared secret (e.g. `Authorization: Bearer <token>`) that the widget sends and the API validates.
-- [ ] **Rate limiting** — add per-IP rate limiting on `/api/invite-agent` using `@upstash/ratelimit` or a simple in-memory counter.
-
-### Multi-tenant
-- [ ] **Config per-request** — right now one DocTalk server = one company's docs. Accept `companyId` from the widget and look up per-company config (docs URL, agent name, branding) from a database or config file.
-- [ ] **Multiple doc sources** — let different pages pass different `DOCS_LLM_URL` values at runtime rather than one fixed env variable.
-
-### Docs sync
-- [ ] **Webhook re-index** — expose a `POST /api/reindex` endpoint. Call it from your docs CI/CD pipeline after each docs deploy so the search index stays fresh without a server restart.
-- [ ] **Incremental updates** — MiniSearch supports `add`/`remove` per document. Track file modification times and only re-index changed files.
-
-### Voice quality
-- [ ] **Interruption tuning** — expose `speech_threshold`, `interrupt_duration_ms`, and `silence_duration_ms` as env variables so each company can tune for their language and speaking style.
-- [ ] **Language support** — Deepgram nova-3 supports 36 languages. Add a `DOCS_LANGUAGE` env var and pass it to the STT config.
-
-### Analytics
-- [ ] **Question logging** — log each user question (anonymised) to a store so you can see what users ask most and improve your docs accordingly.
-- [ ] **Unanswered tracking** — detect when the agent says "I don't have that in the docs" and flag those questions for docs team review.
-
----
-
-## Production checklist
-
-Before shipping to real users, complete these:
-
-- [ ] Set `DOCS_LLM_URL` pointing to an `llms.txt` file (local `DOCS_PATH` does not work on Vercel/cloud)
-- [ ] Add an `Authorization: Bearer <token>` check to `/api/invite-agent` so only your widget can trigger agents
-- [ ] Add rate limiting per IP on `/api/invite-agent` to protect your Agora credits
-- [ ] Set `DOCS_BASE_URL` to your real docs URL so transcript links work correctly
-- [ ] Enable Agora Presence service in the Agora Console (suppresses a non-fatal RTM warning)
-- [ ] Test in the iframe context at real widget dimensions (~380×560px), not just at `/embed` directly
 
 ---
 

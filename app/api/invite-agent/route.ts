@@ -8,12 +8,18 @@ import {
   MiniMaxTTS,
   OpenAI,
 } from 'agora-agents';
+import type { AgoraArea } from 'agora-agents';
 import { loadDocumentation } from '@/lib/docs-loader';
 import { buildSystemPrompt } from '@/lib/system-prompt';
 import { DEFAULT_AGENT_UID } from '@/lib/agora';
+import { rateLimit, clientIp } from '@/lib/rate-limit';
 import type { ClientStartRequest, AgentResponse } from '@/types/conversation';
 
 const agentUid = process.env.NEXT_PUBLIC_AGENT_UID ?? String(DEFAULT_AGENT_UID);
+
+// Agent sessions cost real money — cap at 5 starts per minute per IP.
+// Raise this if you add authentication upstream.
+const RATE_LIMIT = { limit: 5, windowMs: 60_000 };
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -21,7 +27,29 @@ function requireEnv(name: string): string {
   return value;
 }
 
+const AREA_MAP: Record<string, AgoraArea> = {
+  US: Area.US, EU: Area.EU, AP: Area.AP, CN: Area.CN,
+};
+
+function resolveArea(): AgoraArea {
+  return AREA_MAP[(process.env.AGORA_AREA ?? 'US').toUpperCase()] ?? Area.US;
+}
+
 export async function POST(request: NextRequest) {
+  const { allowed, remaining, resetAt } = rateLimit(clientIp(request), RATE_LIMIT);
+  if (!allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please try again shortly.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.ceil((resetAt - Date.now()) / 1000)),
+          'X-RateLimit-Remaining': '0',
+        },
+      },
+    );
+  }
+
   try {
     const body: ClientStartRequest = await request.json();
     const { requester_id, channel_name, context } = body;
@@ -36,7 +64,6 @@ export async function POST(request: NextRequest) {
     const appId = requireEnv('NEXT_PUBLIC_AGORA_APP_ID');
     const appCertificate = requireEnv('NEXT_AGORA_APP_CERTIFICATE');
 
-    // Load documentation content and build the system prompt
     const docsContent = await loadDocumentation(context);
     const systemPrompt = buildSystemPrompt(docsContent);
 
@@ -44,7 +71,7 @@ export async function POST(request: NextRequest) {
       process.env.AGENT_GREETING ??
       `Hi! I'm ${process.env.AGENT_NAME ?? 'your doc assistant'}. What would you like to know?`;
 
-    const client = new AgoraClient({ area: Area.US, appId, appCertificate });
+    const client = new AgoraClient({ area: resolveArea(), appId, appCertificate });
 
     const agent = new Agent({
       client,
@@ -105,11 +132,14 @@ export async function POST(request: NextRequest) {
 
     const agentId = await session.start();
 
-    return NextResponse.json({
-      agent_id: agentId,
-      create_ts: Math.floor(Date.now() / 1000),
-      state: 'RUNNING',
-    } as AgentResponse);
+    return NextResponse.json(
+      {
+        agent_id: agentId,
+        create_ts: Math.floor(Date.now() / 1000),
+        state: 'RUNNING',
+      } as AgentResponse,
+      { headers: { 'X-RateLimit-Remaining': String(remaining) } },
+    );
   } catch (err) {
     console.error('[DocTalk] Failed to start agent:', err);
     return NextResponse.json(

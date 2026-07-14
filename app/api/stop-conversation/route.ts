@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server';
 import { AgoraClient, Area } from 'agora-agents';
+import type { AgoraArea } from 'agora-agents';
 import type { StopConversationRequest } from '@/types/conversation';
+
+const AREA_MAP: Record<string, AgoraArea> = {
+  US: Area.US, EU: Area.EU, AP: Area.AP, CN: Area.CN,
+};
+
+function resolveArea(): AgoraArea {
+  return AREA_MAP[(process.env.AGORA_AREA ?? 'US').toUpperCase()] ?? Area.US;
+}
 
 function isAlreadyStopped(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
@@ -25,7 +34,7 @@ export async function POST(request: Request) {
       throw new Error('Missing Agora credentials.');
     }
 
-    const client = new AgoraClient({ area: Area.US, appId, appCertificate });
+    const client = new AgoraClient({ area: resolveArea(), appId, appCertificate });
     try {
       await client.stopAgent(agent_id);
     } catch (err) {

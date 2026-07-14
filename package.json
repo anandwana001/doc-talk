@@ -7,6 +7,8 @@
     "node": ">=22"
   },
   "scripts": {
+    "prebuild": "node scripts/build-search-index.mjs",
+    "predev": "node scripts/build-search-index.mjs",
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",

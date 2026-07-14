@@ -143,12 +143,11 @@ export function DocTalkWidget({
     async (uid: string): Promise<AgoraRenewalTokens> => {
       const channel = agoraData?.channel;
       if (!channel) throw new Error('No channel for renewal');
-      const [rtcRes, rtmRes] = await Promise.all([
-        fetch(`/api/generate-agora-token?channel=${channel}&uid=${uid}`),
-        fetch(`/api/generate-agora-token?channel=${channel}&uid=${agoraData!.uid}`),
-      ]);
-      const [rtcData, rtmData] = await Promise.all([rtcRes.json(), rtmRes.json()]);
-      return { rtcToken: rtcData.token, rtmToken: rtmData.token };
+      // buildTokenWithRtm issues a single combined token valid for both RTC and RTM.
+      const res = await fetch(`/api/generate-agora-token?channel=${channel}&uid=${uid}`);
+      if (!res.ok) throw new Error('Token renewal failed');
+      const data = await res.json();
+      return { rtcToken: data.token, rtmToken: data.token };
     },
     [agoraData],
   );

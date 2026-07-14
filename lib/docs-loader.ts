@@ -1,6 +1,6 @@
 import { loadBaseDocs, searchDocs } from './search-index';
 
-const MAX_URL_CHARS = 160_000;
+const MAX_URL_CHARS = 80_000;
 
 async function loadFromUrl(url: string): Promise<string> {
   try {
@@ -36,10 +36,10 @@ export async function loadDocumentation(context?: string): Promise<string> {
   }
   if (process.env.DOCS_PATH) {
     // Layer 1: always load the priority doc base.
-    // 280K chars ≈ 70K tokens — GPT-4o-mini has a 128K token context window,
-    // so this leaves 58K tokens for conversation history. Covers all of
-    // introduction + all of AI + significant realtime-media content.
-    const { text: baseText, ids: baseIds } = await loadBaseDocs(280_000);
+    // 120K chars ≈ 30K tokens, leaving ~98K tokens for system prompt overhead
+    // and conversation history (maxHistory: 20 turns × ~1K tokens avg = 20K).
+    // Covers introduction + AI + significant realtime-media content.
+    const { text: baseText, ids: baseIds } = await loadBaseDocs(120_000);
 
     // Layer 2: if page context is meaningful, add context-specific chunks
     // that aren't already in the base load.

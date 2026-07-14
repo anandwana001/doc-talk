@@ -52,6 +52,7 @@ interface DocLink {
 }
 
 interface TranscriptMessage {
+  id: string;
   uid: string;
   text: string;
   isAgent: boolean;
@@ -77,6 +78,7 @@ export default function DocConversation({
   const [messageLinks, setMessageLinks] = useState<Map<string, DocLink[]>>(new Map());
   const fetchedFor = useRef<Set<string>>(new Set());
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const msgSeq = useRef(0);
 
   // StrictMode-safe join gate
   const [isReady, setIsReady] = useState(false);
@@ -143,10 +145,12 @@ export default function DocConversation({
                 item.status === TurnStatus.END || item.status === TurnStatus.INTERRUPTED;
 
               if (isComplete) {
-                if (text.trim()) done.push({ uid: item.uid, text, isAgent });
+                if (text.trim()) {
+                  done.push({ id: String(msgSeq.current++), uid: item.uid, text, isAgent });
+                }
               } else {
                 // Only keep the most recent in-progress item
-                live = { uid: item.uid, text, isAgent };
+                live = { id: 'live', uid: item.uid, text, isAgent };
               }
             }
 
@@ -227,9 +231,10 @@ export default function DocConversation({
   const handleTokenWillExpire = useCallback(async () => {
     if (!onTokenWillExpire || !joinedUID) return;
     try {
+      // buildTokenWithRtm issues a single combined token valid for both RTC and RTM,
+      // so we renew both with the one token returned for the RTC UID.
       const { rtcToken, rtmToken } = await onTokenWillExpire(joinedUID.toString());
-      await client?.renewToken(rtcToken);
-      await rtmClient.renewToken(rtmToken);
+      await Promise.all([client?.renewToken(rtcToken), rtmClient.renewToken(rtmToken)]);
     } catch (err) {
       console.error('[DocTalk] Token renewal failed:', err);
     }
@@ -294,9 +299,9 @@ export default function DocConversation({
             Speak to ask about the documentation.
           </p>
         )}
-        {transcript.map((msg, i) => (
+        {transcript.map((msg) => (
           <TranscriptBubble
-            key={i}
+            key={msg.id}
             message={msg}
             links={msg.isAgent ? messageLinks.get(msg.text.slice(0, 120)) : undefined}
           />

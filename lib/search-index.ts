@@ -7,13 +7,29 @@ interface DocChunk {
   title: string;
   content: string;
   filePath: string;
-  priorityRank: number; // lower = higher priority
+  priorityRank: number;
 }
 
 const CHUNK_SIZE = 1_500;
-
-// Priority order: lower index = loaded first and boosted in search
 const PRIORITY_DIRS = ['introduction', 'ai', 'realtime-media', 'api-reference'];
+const PREBUILT_PATH = path.join(process.cwd(), 'var', 'search-index.json');
+
+const MINISEARCH_OPTIONS = {
+  fields: ['title', 'content'] as string[],
+  storeFields: ['title', 'content', 'filePath', 'priorityRank'] as string[],
+  searchOptions: { boost: { title: 2 }, fuzzy: 0.2 as number, prefix: true },
+};
+
+interface SearchIndex {
+  index: MiniSearch<DocChunk>;
+  chunks: Map<string, DocChunk>;
+  prioritySorted: DocChunk[];
+}
+
+// ---------------------------------------------------------------------------
+// Helpers shared with scripts/build-search-index.mjs
+// (keep in sync if you change the chunking logic)
+// ---------------------------------------------------------------------------
 
 function getPriorityRank(filePath: string): number {
   const normalized = filePath.replace(/\\/g, '/');
@@ -34,10 +50,7 @@ function extractText(raw: string): string {
   const propTexts: string[] = [];
   content = content.replace(
     /\b(?:title|description|label|heading)\s*=\s*"([^"]+)"/g,
-    (_, val: string) => {
-      propTexts.push(val.trim());
-      return '';
-    },
+    (_, val: string) => { propTexts.push(val.trim()); return ''; },
   );
 
   content = content
@@ -50,6 +63,52 @@ function extractText(raw: string): string {
   const props = propTexts.filter(Boolean).join('\n');
   return [props, body].filter(Boolean).join('\n\n');
 }
+
+function sortByPriority(chunks: DocChunk[]): DocChunk[] {
+  return [...chunks].sort((a, b) => {
+    if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
+    const aDepth = (a.filePath.match(/\//g) ?? []).length;
+    const bDepth = (b.filePath.match(/\//g) ?? []).length;
+    return aDepth - bDepth;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fast path: load the pre-built index from var/search-index.json
+// ---------------------------------------------------------------------------
+
+async function tryLoadPrebuilt(): Promise<SearchIndex | null> {
+  try {
+    const raw = await fs.readFile(PREBUILT_PATH, 'utf-8');
+    const data = JSON.parse(raw) as {
+      version: number;
+      docsPath: string;
+      indexJson: string;
+      chunks: DocChunk[];
+    };
+
+    if (data.version !== 1) return null;
+
+    if (data.docsPath !== process.env.DOCS_PATH) {
+      console.warn('[DocTalk] Pre-built index is for a different DOCS_PATH — rebuilding in memory. Run `node scripts/build-search-index.mjs` to update.');
+      return null;
+    }
+
+    const index = MiniSearch.loadJSON<DocChunk>(data.indexJson, MINISEARCH_OPTIONS);
+    const chunks = new Map(data.chunks.map((c) => [c.id, c]));
+    const prioritySorted = sortByPriority(data.chunks);
+
+    const fileCount = new Set(data.chunks.map((c) => c.filePath)).size;
+    console.log(`[DocTalk] Loaded pre-built index: ${data.chunks.length} chunks from ${fileCount} files.`);
+    return { index, chunks, prioritySorted };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Slow path: build in memory (dev without a pre-built file, or DOCS_LLM_URL)
+// ---------------------------------------------------------------------------
 
 async function buildChunks(docsPath: string): Promise<DocChunk[]> {
   let entries: string[];
@@ -97,12 +156,22 @@ async function buildChunks(docsPath: string): Promise<DocChunk[]> {
   return chunks;
 }
 
-interface SearchIndex {
-  index: MiniSearch;
-  chunks: Map<string, DocChunk>;
-  // Chunks pre-sorted by priority for the base load
-  prioritySorted: DocChunk[];
+async function buildInMemory(docsPath: string): Promise<SearchIndex> {
+  const allChunks = await buildChunks(docsPath);
+
+  const index = new MiniSearch<DocChunk>(MINISEARCH_OPTIONS);
+  index.addAll(allChunks);
+
+  const prioritySorted = sortByPriority(allChunks);
+  const chunks = new Map(allChunks.map((c) => [c.id, c]));
+  const fileCount = new Set(allChunks.map((c) => c.filePath)).size;
+  console.log(`[DocTalk] Search index built in memory: ${allChunks.length} chunks from ${fileCount} files`);
+  return { index, chunks, prioritySorted };
 }
+
+// ---------------------------------------------------------------------------
+// Singleton with fast/slow path selection
+// ---------------------------------------------------------------------------
 
 let _indexPromise: Promise<SearchIndex> | null = null;
 
@@ -112,48 +181,24 @@ function getIndex(): Promise<SearchIndex> {
   _indexPromise = (async (): Promise<SearchIndex> => {
     const docsPath = process.env.DOCS_PATH;
     if (!docsPath) {
-      return {
-        index: new MiniSearch({ fields: ['title', 'content'] }),
-        chunks: new Map(),
-        prioritySorted: [],
-      };
+      return { index: new MiniSearch(MINISEARCH_OPTIONS), chunks: new Map(), prioritySorted: [] };
     }
 
-    const allChunks = await buildChunks(docsPath);
+    // Fast path: pre-built JSON written by scripts/build-search-index.mjs
+    const prebuilt = await tryLoadPrebuilt();
+    if (prebuilt) return prebuilt;
 
-    const index = new MiniSearch<DocChunk>({
-      fields: ['title', 'content'],
-      storeFields: ['title', 'content', 'filePath', 'priorityRank'],
-      searchOptions: {
-        boost: { title: 2 },
-        fuzzy: 0.2,
-        prefix: true,
-      },
-    });
-    index.addAll(allChunks);
-
-    // Pre-sort by priority rank then by file depth (shallower = more overview)
-    const prioritySorted = [...allChunks].sort((a, b) => {
-      if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
-      const aDepth = (a.filePath.match(/\//g) || []).length;
-      const bDepth = (b.filePath.match(/\//g) || []).length;
-      return aDepth - bDepth;
-    });
-
-    const chunks = new Map(allChunks.map((c) => [c.id, c]));
-    const fileCount = new Set(allChunks.map((c) => c.filePath)).size;
-    console.log(`[DocTalk] Search index ready: ${allChunks.length} chunks from ${fileCount} files`);
-    return { index, chunks, prioritySorted };
+    // Slow path: scan and parse all Markdown files at runtime
+    return buildInMemory(docsPath);
   })();
 
   return _indexPromise;
 }
 
-/**
- * Load a broad base of high-priority documentation — always included regardless
- * of what the user asks. Covers intro, AI, realtime-media, and api-reference
- * sections comprehensively so Ara isn't blind to core topics.
- */
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 export async function loadBaseDocs(maxChars = 120_000): Promise<{ text: string; ids: Set<string> }> {
   const { prioritySorted } = await getIndex();
   const sections: string[] = [];
@@ -176,11 +221,6 @@ export interface DocLink {
   filePath: string;
 }
 
-/**
- * Search for the top matching doc pages for a given query.
- * Returns one link per unique file (deduped across chunks).
- * Used to show "Related docs" links in the transcript.
- */
 export async function searchDocsForLinks(query: string, topK = 3): Promise<DocLink[]> {
   if (!query.trim()) return [];
   const { index, chunks } = await getIndex();
@@ -195,7 +235,7 @@ export async function searchDocsForLinks(query: string, topK = 3): Promise<DocLi
     const chunk = chunks.get(r.id);
     if (!chunk) continue;
     if (seen.has(chunk.filePath)) continue;
-    if (seen.has(chunk.title)) continue; // skip same-title files from different paths
+    if (seen.has(chunk.title)) continue;
     seen.add(chunk.filePath);
     seen.add(chunk.title);
     links.push({ title: chunk.title, filePath: chunk.filePath });
@@ -204,10 +244,6 @@ export async function searchDocsForLinks(query: string, topK = 3): Promise<DocLi
   return links;
 }
 
-/**
- * Search for chunks relevant to a specific query (e.g. user's question or page context).
- * Excludes IDs already included in the base load.
- */
 export async function searchDocs(
   query: string,
   excludeIds: Set<string> = new Set(),
@@ -219,7 +255,7 @@ export async function searchDocs(
   const { index, chunks } = await getIndex();
   if (index.documentCount === 0) return '';
 
-  const results = index.search(query).slice(0, topK * 3); // fetch extra to account for exclusions
+  const results = index.search(query).slice(0, topK * 3);
   const sections: string[] = [];
   let total = 0;
 
@@ -237,7 +273,7 @@ export async function searchDocs(
   return sections.join('\n\n');
 }
 
-// Warm up the index on module load so the first request is fast.
+// Warm up the index on module load so the first request is instant.
 if (process.env.DOCS_PATH) {
   getIndex().catch(() => {});
 }

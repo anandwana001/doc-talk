@@ -1,13 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { RtcTokenBuilder, RtcRole } from 'agora-token';
+import { rateLimit, clientIp } from '@/lib/rate-limit';
 
 const TOKEN_EXPIRY_SECONDS = 3600;
+
+// Token generation is a lightweight call but still creates a signed credential.
+// 30 per minute per IP is generous for legitimate use and blocks abuse.
+const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
 
 function generateChannelName(): string {
   return `doctalk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export async function GET(request: NextRequest) {
+  const { allowed, remaining, resetAt } = rateLimit(clientIp(request), RATE_LIMIT);
+  if (!allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please try again shortly.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.ceil((resetAt - Date.now()) / 1000)),
+          'X-RateLimit-Remaining': '0',
+        },
+      },
+    );
+  }
+
   const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
   const appCertificate = process.env.NEXT_AGORA_APP_CERTIFICATE;
 
@@ -40,12 +59,12 @@ export async function GET(request: NextRequest) {
       expiresAt,
     );
 
-    return NextResponse.json({ token, uid: uid.toString(), channel: channelName });
+    return NextResponse.json(
+      { token, uid: uid.toString(), channel: channelName },
+      { headers: { 'X-RateLimit-Remaining': String(remaining) } },
+    );
   } catch (err) {
     console.error('[DocTalk] Token generation failed:', err);
-    return NextResponse.json(
-      { error: 'Failed to generate token.' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'Failed to generate token.' }, { status: 500 });
   }
 }

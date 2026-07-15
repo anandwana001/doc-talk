@@ -1,6 +1,10 @@
 import { loadBaseDocs, searchDocs } from './search-index';
 
 const MAX_URL_CHARS = 80_000;
+const MAX_CONTEXT_CHARS = 8_000;
+const URL_CACHE_TTL_MS = 60 * 60 * 1_000; // 1 hour
+
+let _urlCache: { url: string; content: string; fetchedAt: number } | null = null;
 
 async function loadFromUrl(url: string): Promise<string> {
   try {
@@ -13,6 +17,35 @@ async function loadFromUrl(url: string): Promise<string> {
     console.error('[DocTalk] Could not fetch DOCS_LLM_URL:', err);
     return '';
   }
+}
+
+async function loadFromUrlCached(url: string): Promise<string> {
+  const now = Date.now();
+  if (_urlCache && _urlCache.url === url && now - _urlCache.fetchedAt < URL_CACHE_TTL_MS) {
+    return _urlCache.content;
+  }
+  const content = await loadFromUrl(url);
+  _urlCache = { url, content, fetchedAt: now };
+  return content;
+}
+
+/**
+ * Per-turn context retrieval for the RAG proxy.
+ * Returns only the chunks most relevant to `query` — typically 2–3K tokens
+ * instead of the 30K loaded at session start in direct mode.
+ */
+export async function getContextForQuery(query: string): Promise<string> {
+  if (process.env.DOCS_CONTENT) {
+    return process.env.DOCS_CONTENT.slice(0, MAX_CONTEXT_CHARS);
+  }
+  if (process.env.DOCS_LLM_URL) {
+    const full = await loadFromUrlCached(process.env.DOCS_LLM_URL);
+    return full.slice(0, MAX_CONTEXT_CHARS);
+  }
+  if (process.env.DOCS_PATH) {
+    return searchDocs(query, new Set(), 6, MAX_CONTEXT_CHARS);
+  }
+  return '';
 }
 
 /**

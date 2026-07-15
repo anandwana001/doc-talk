@@ -10,6 +10,7 @@ Your website                        DocTalk server (you deploy)
 doctalk.js (2 lines)           →    /doctalk.js       widget script
 DocTalk.init({ apiBase })      →    /embed            voice UI (iframe)
                                →    /api/invite-agent starts Agora agent
+                               →    /api/mcp          MCP tool server (doc retrieval)
                                →    /api/search-links doc links per response
 ```
 
@@ -21,13 +22,15 @@ When a user clicks the button, your website opens an iframe pointing to `/embed`
 
 ```
 1. User clicks "Talk to Docs" button on your website
-2. doctalk.js opens an iframe → /embed?ctx=<page context>
+2. doctalk.js opens an iframe → /embed
 3. DocTalkEmbed calls /api/generate-agora-token   → gets RTC + RTM tokens
 4. DocTalkEmbed calls /api/invite-agent           → starts Agora agent
-   └─ Server loads docs (MiniSearch) + builds system prompt
-   └─ Server calls Agora REST API to create a voice agent
+   └─ Server creates agent with slim system prompt (~500 tokens)
+   └─ Agent is configured with MCP server: /api/mcp
+   └─ Server calls Agora REST API to create the voice agent
 5. Agora agent joins the RTC channel
 6. User speaks → Deepgram ASR → GPT-4o-mini → MiniMax TTS → user hears answer
+   └─ On each turn, agent calls /api/mcp → search_docs(query) → retrieves relevant chunks
 7. Agora RTM sends word-by-word transcript to the browser
 8. After each agent turn: /api/search-links fetches top 3 doc pages → shown as chips
 ```
@@ -46,11 +49,11 @@ One REST call creates an agent that handles the full pipeline:
 Deepgram nova-3 (ASR)  →  GPT-4o-mini (LLM)  →  MiniMax TTS
 ```
 
-You provide the system prompt (which includes your docs). Agora runs the pipeline — no audio processing infrastructure to manage.
+You provide the system prompt and MCP server URL. Agora runs the pipeline — no audio processing infrastructure to manage.
 
 ### Sub-500ms latency via SD-RTN
 
-Agora's Software Defined Real-time Network is a global private network built for real-time media. The full roundtrip — user speech → transcription → LLM → TTS → audio back — completes in under 500ms in most regions. This is what makes the conversation feel natural.
+Agora's Software Defined Real-time Network is a global private network built for real-time media. The full roundtrip — user speech → transcription → LLM → TTS → audio back — completes in under 500ms in most regions.
 
 ### Real-time transcripts via RTM
 
@@ -64,26 +67,45 @@ Agora uses short-lived tokens scoped per channel. DocTalk generates them server-
 
 ---
 
-## MiniSearch RAG
+## MCP doc retrieval
+
+DocTalk uses the [Model Context Protocol](https://modelcontextprotocol.io) to give the agent on-demand access to your documentation. The agent calls `search_docs` whenever it needs to answer a question — it never holds the full doc corpus in memory.
+
+### How it works
+
+```
+User asks: "How do I authenticate with tokens?"
+    ↓
+Agora agent calls POST /api/mcp
+  { method: "tools/call", params: { name: "search_docs", arguments: { query: "..." } } }
+    ↓
+DocTalk runs MiniSearch against pre-built index
+    ↓
+Returns top 6 most relevant doc chunks (~2 000 tokens)
+    ↓
+Agent answers using only those chunks
+```
+
+### Token budget per turn
+
+| Source | Tokens |
+|---|---|
+| System prompt (instructions only) | ~500 |
+| search_docs result (6 chunks, on demand) | ~2 000 |
+| Conversation history (20 turns) | ~8 000 |
+| **Total** | **~10 500** |
+
+For comparison, the old approach embedded the full doc corpus in the system prompt — up to 30 000+ tokens on every session regardless of what the user asked. MCP retrieves only what is needed, per turn.
+
+### Pre-built search index
+
+DocTalk serialises the MiniSearch index to `var/search-index.json` at build time (`npm run build` or `npm run dev`). On startup it loads the serialised index in milliseconds — no cold start lag even for 60 000+ document chunks.
+
+---
+
+## MiniSearch
 
 DocTalk indexes your documentation locally using [MiniSearch](https://github.com/lucasdicioccio/minisearch) — a BM25 keyword search engine that runs in-process with no external dependencies.
-
-### How docs are loaded
-
-When a user starts a session, DocTalk loads docs in two layers:
-
-**Layer 1 — Priority base (always loaded)**
-Up to 280,000 characters from your docs, ordered by importance:
-1. Introduction / getting started content
-2. AI and conversational content
-3. Real-time media guides
-4. API references
-5. Everything else
-
-**Layer 2 — Context search (added per session)**
-Up to 40,000 additional characters retrieved by searching for the user's current page context (title + URL path, passed via `?ctx=` on the iframe URL). This ensures the agent has extra detail about whatever section the user is reading.
-
-Total: ~320K characters → roughly 80K tokens, well within GPT-4o-mini's 128K context window.
 
 ### Doc links in transcript
 
@@ -91,7 +113,7 @@ After each completed agent response, DocTalk calls `/api/search-links` with the 
 
 ### Limitations
 
-MiniSearch is BM25 keyword search — not semantic/vector search. It works well for technical documentation where users ask questions using the same terms the docs use. For ambiguous natural-language questions, a vector DB (Pinecone, Weaviate) or a custom LLM proxy would produce better retrieval. See [Roadmap](roadmap.md).
+MiniSearch is BM25 keyword search — not semantic/vector search. It works well for technical documentation where users ask questions using the same terms the docs use. For ambiguous natural-language questions, a vector DB (Pinecone, Weaviate) or pgvector would produce better retrieval. See [Roadmap](roadmap.md).
 
 ---
 
@@ -102,7 +124,8 @@ doc-talk/
 ├── app/
 │   ├── api/
 │   │   ├── generate-agora-token/   # RTC + RTM token generation
-│   │   ├── invite-agent/           # Starts the Agora voice agent
+│   │   ├── invite-agent/           # Starts the Agora voice agent (with MCP config)
+│   │   ├── mcp/                    # MCP server — exposes search_docs tool
 │   │   ├── stop-conversation/      # Stops the agent
 │   │   └── search-links/          # Returns related doc links for transcript
 │   ├── embed/                      # Full-screen voice UI (loaded in iframe)
@@ -113,9 +136,12 @@ doc-talk/
 │   └── DocConversation.tsx         # Core RTC + RTM conversation UI
 ├── lib/
 │   ├── search-index.ts             # MiniSearch index builder + search functions
-│   ├── docs-loader.ts              # Docs content loading (path / URL / inline)
+│   ├── docs-loader.ts              # Docs content loading + per-query retrieval
 │   ├── system-prompt.ts            # Agent system prompt builder
+│   ├── rate-limit.ts               # Sliding-window in-process rate limiter
 │   └── agora.ts                    # Agora token + agent API helpers
+├── scripts/
+│   └── build-search-index.mjs     # Pre-builds MiniSearch index at deploy time
 ├── public/
 │   └── doctalk.js                  # The client SDK — drop into any website
 ├── types/

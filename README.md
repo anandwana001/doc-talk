@@ -5,7 +5,10 @@ An open-source, self-hosted SDK that adds a **voice AI assistant** to any docume
 Users click a button, speak naturally, and get spoken answers directly from your documentation. No typing, no searching.
 
 ```
-User speaks → Agora ASR → GPT-4o-mini (with your docs) → TTS → User hears the answer
+User speaks → Agora ASR → GPT-4o-mini → MiniMax TTS → User hears the answer
+                               ↕ MCP
+                         search_docs(query)
+                         → relevant doc chunks
 ```
 
 ---
@@ -82,8 +85,8 @@ See [Integration guide](docs/integration.md) for all options.
 | Voice pipeline | Agora Conversational AI Engine |
 | Real-time transport | Agora SD-RTN |
 | Transcripts | Agora RTM |
-| Framework | Next.js 15 (App Router) |
-| Search / RAG | MiniSearch (BM25, in-memory) |
+| Framework | Next.js 16 (App Router) |
+| Doc retrieval | MCP + MiniSearch (BM25, pre-built index, per-turn) |
 | Client widget | Vanilla JS — zero dependencies |
 | Styling | Tailwind CSS |
 

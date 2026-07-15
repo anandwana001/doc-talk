@@ -22,15 +22,15 @@ cp .env.local.example .env.local
 
 You must provide your documentation content via one of these three options.
 
-### Option A — Local folder (development only)
+### Option A — Local folder
 
 ```env
 DOCS_PATH=/path/to/your/docs/folder
 ```
 
-DocTalk recursively reads all `.md` and `.mdx` files in the folder. Builds a MiniSearch index at startup. Fast for local development.
+DocTalk recursively reads all `.md` and `.mdx` files in the folder and builds a MiniSearch index. The index is pre-built at startup and serialised to `var/search-index.json` for fast cold starts.
 
-**Not suitable for Vercel or any cloud deployment** — the local path does not exist on remote servers.
+**Not suitable for Vercel or serverless deployments** — the local path does not exist on remote servers. Use Option B instead.
 
 ### Option B — Remote `llms.txt` URL (recommended for production)
 
@@ -38,13 +38,11 @@ DocTalk recursively reads all `.md` and `.mdx` files in the folder. Builds a Min
 DOCS_LLM_URL=https://docs.yourcompany.com/llms.txt
 ```
 
-Many documentation platforms expose an `llms.txt` or `llms-full.txt` — a single plain-text file containing the entire documentation, optimised for LLM consumption. DocTalk fetches this URL on each session start.
+Many documentation platforms expose an `llms.txt` — a single plain-text file containing the entire documentation, optimised for LLM consumption. DocTalk fetches this URL and caches it for 1 hour.
 
 Check if your docs site has one:
 - `https://yourdocs.com/llms.txt`
 - `https://yourdocs.com/llms-full.txt`
-
-If not, you can generate one from your docs build pipeline (e.g. concatenate all markdown files).
 
 ### Option C — Inline string
 
@@ -52,7 +50,24 @@ If not, you can generate one from your docs build pipeline (e.g. concatenate all
 DOCS_CONTENT="# My Product\n\nMy product does X..."
 ```
 
-Paste documentation directly as an env variable. Good for quick tests or very small docs sets.
+Paste documentation directly as an env variable. Good for quick tests or very small doc sets.
+
+---
+
+## MCP doc retrieval (required for production)
+
+| Variable | Description |
+|---|---|
+| `APP_URL` | Publicly reachable base URL of your DocTalk deployment (e.g. `https://your-doctalk.vercel.app`). Agora's cloud calls `/api/mcp` at this URL on every conversation turn to retrieve relevant doc chunks. |
+| `MCP_SECRET` | Secret appended as `?key=` on the MCP endpoint URL. Prevents unauthorised callers from using your search index. Generate with `openssl rand -hex 32`. |
+
+Without `APP_URL`, the agent has no access to your documentation and will be unable to answer questions.
+
+For local development, use an ngrok tunnel:
+```bash
+ngrok http 3000 --host-header=rewrite
+# then set APP_URL=https://xxxx.ngrok-free.dev
+```
 
 ---
 
@@ -62,7 +77,7 @@ Paste documentation directly as an env variable. Good for quick tests or very sm
 |---|---|---|
 | `COMPANY_NAME` | `"this product"` | Used in the agent's system prompt |
 | `AGENT_NAME` | `"Assistant"` | The assistant's display name |
-| `AGENT_GREETING` | *(none)* | First thing the agent says when a session starts |
+| `AGENT_GREETING` | *(auto)* | First thing the agent says when a session starts |
 
 ---
 
@@ -83,4 +98,5 @@ If `DOCS_BASE_URL` is not set, the related page links are hidden.
 
 | Variable | Default | Description |
 |---|---|---|
-| `NEXT_PUBLIC_AGENT_UID` | `123456` | RTC UID for the Agora AI agent |
+| `NEXT_PUBLIC_AGENT_UID` | `123456` | RTC UID for the Agora AI agent — must not collide with real user UIDs |
+| `AGORA_AREA` | `US` | Agora server region — `US`, `EU`, `AP`, or `CN` |

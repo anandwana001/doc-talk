@@ -36,18 +36,6 @@ DocTalk.init({
 
 ---
 
-## How page context is passed
-
-When a user opens the widget, `doctalk.js` automatically captures:
-- `document.title` — the current page title
-- `window.location.pathname` — the current URL path
-
-This is passed as a `?ctx=` parameter on the iframe URL. DocTalk's server uses it to do an extra MiniSearch query and preload relevant docs for that specific page — so if the user is on your "Authentication" page, the agent loads authentication-related content first.
-
-This is automatic and requires no configuration.
-
----
-
 ## Embedding in a React / Next.js docs site
 
 If your docs site is a React app, you can load the widget script in a `useEffect`:
@@ -72,7 +60,7 @@ The `/embed` page can be used directly without `doctalk.js` if you want to embed
 
 ```html
 <iframe
-  src="https://your-doctalk.vercel.app/embed?ctx=Getting+Started"
+  src="https://your-doctalk.vercel.app/embed"
   width="400"
   height="600"
   allow="microphone"
@@ -82,8 +70,6 @@ The `/embed` page can be used directly without `doctalk.js` if you want to embed
 
 The `allow="microphone"` attribute is required — without it, the browser blocks microphone access inside the iframe.
 
-The `?ctx=` parameter is optional. Pass a topic hint (page title + path) for better doc relevance.
-
 ---
 
 ## Microphone permissions
@@ -91,3 +77,15 @@ The `?ctx=` parameter is optional. Pass a topic hint (page title + path) for bet
 DocTalk requires microphone access. Browsers prompt the user once and remember the choice. The permission is scoped to your DocTalk server's origin, not your docs site's origin (because the voice UI runs in an iframe from DocTalk's domain).
 
 Users on mobile (iOS Safari, Android Chrome) will see the permission prompt the first time they click the button.
+
+---
+
+## What any company needs
+
+DocTalk is not specific to any industry or company. To deploy it for your own documentation:
+
+1. **Agora account** — required for the voice pipeline. Free tier works. [Sign up at console.agora.io](https://console.agora.io)
+2. **Your documentation** — point `DOCS_LLM_URL` at your `llms.txt` or `DOCS_PATH` at your markdown folder
+3. **A deployment** — Vercel, Railway, or any Node.js host
+
+The agent will answer questions about your product using your documentation. No Agora branding appears to your users.

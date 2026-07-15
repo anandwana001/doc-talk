@@ -55,6 +55,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const inviteSecret = process.env.INVITE_SECRET;
+  if (inviteSecret) {
+    const auth = request.headers.get('authorization') ?? '';
+    if (auth !== `Bearer ${inviteSecret}`) {
+      return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
+    }
+  }
+
   try {
     const body: ClientStartRequest = await request.json();
     const { requester_id, channel_name } = body;
@@ -101,14 +109,17 @@ export async function POST(request: NextRequest) {
       maxHistory: 40,
       turnDetection: {
         config: {
-          speech_threshold: 0.5,
+          speech_threshold: Number(process.env.VAD_SPEECH_THRESHOLD ?? 0.5),
           start_of_speech: {
             mode: 'vad',
-            vad_config: { interrupt_duration_ms: 160, prefix_padding_ms: 300 },
+            vad_config: {
+              interrupt_duration_ms: Number(process.env.VAD_INTERRUPT_MS ?? 160),
+              prefix_padding_ms: 300,
+            },
           },
           end_of_speech: {
             mode: 'vad',
-            vad_config: { silence_duration_ms: 480 },
+            vad_config: { silence_duration_ms: Number(process.env.VAD_SILENCE_MS ?? 480) },
           },
         },
       },
@@ -120,7 +131,7 @@ export async function POST(request: NextRequest) {
         enable_metrics: true,
       },
     })
-      .withStt(new DeepgramSTT({ model: 'nova-3', language: 'en' }))
+      .withStt(new DeepgramSTT({ model: 'nova-3', language: process.env.DOCS_LANGUAGE ?? 'en' }))
       .withLlm(llm)
       .withTts(
         new MiniMaxTTS({

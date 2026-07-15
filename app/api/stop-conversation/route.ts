@@ -1,7 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { AgoraClient, Area } from 'agora-agents';
 import type { AgoraArea } from 'agora-agents';
 import type { StopConversationRequest } from '@/types/conversation';
+import { rateLimit, clientIp } from '@/lib/rate-limit';
+
+const RATE_LIMIT = { limit: 20, windowMs: 60_000 };
 
 const AREA_MAP: Record<string, AgoraArea> = {
   US: Area.US, EU: Area.EU, AP: Area.AP, CN: Area.CN,
@@ -19,7 +22,15 @@ function isAlreadyStopped(err: unknown): boolean {
   return e.body?.reason?.toLowerCase() === 'invalidrequest' && detail.includes('shutting down');
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const { allowed, resetAt } = rateLimit(clientIp(request), RATE_LIMIT);
+  if (!allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests.' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil((resetAt - Date.now()) / 1000)) } },
+    );
+  }
+
   try {
     const body: StopConversationRequest = await request.json();
     const { agent_id } = body;

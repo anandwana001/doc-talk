@@ -6,6 +6,10 @@ const URL_CACHE_TTL_MS = 60 * 60 * 1_000; // 1 hour
 
 let _urlCache: { url: string; content: string; fetchedAt: number } | null = null;
 
+export function invalidateUrlCache(): void {
+  _urlCache = null;
+}
+
 async function loadFromUrl(url: string): Promise<string> {
   try {
     const res = await fetch(url);

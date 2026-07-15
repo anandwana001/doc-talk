@@ -16,6 +16,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getContextForQuery } from '@/lib/docs-loader';
+import { rateLimit, clientIp } from '@/lib/rate-limit';
+
+// Agora calls this once per agent turn — allow up to 120/min per IP.
+const RATE_LIMIT = { limit: 120, windowMs: 60_000 };
 
 const SERVER_INFO = { name: 'doctalk-mcp', version: '1.0.0' };
 const PROTOCOL_VERSION = '2024-11-05';
@@ -118,6 +122,14 @@ function isAuthorized(request: NextRequest): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  const { allowed, resetAt } = rateLimit(clientIp(request), RATE_LIMIT);
+  if (!allowed) {
+    return NextResponse.json(
+      err(null, -32600, 'Too many requests.'),
+      { status: 429, headers: { 'Retry-After': String(Math.ceil((resetAt - Date.now()) / 1000)) } },
+    );
+  }
+
   if (!isAuthorized(request)) {
     return NextResponse.json(
       err(null, -32600, 'Unauthorized.'),

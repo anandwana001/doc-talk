@@ -277,3 +277,7 @@ export async function searchDocs(
 if (process.env.DOCS_PATH) {
   getIndex().catch(() => {});
 }
+
+export function invalidateIndex(): void {
+  _indexPromise = null;
+}
